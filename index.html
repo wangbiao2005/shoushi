@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>声动全息粒子系统 PRO</title>
+    
+    <!-- Google Fonts for Tech Look -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Share+Tech+Mono&family=Noto+Sans+SC:wght@300;400;700&display=swap" rel="stylesheet">
+
+    <!-- MediaPipe Hands & Camera Utils (Global scripts are fine to keep as external) -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        :root {
+            --primary-color: #00f3ff;
+            --secondary-color: #ff0055;
+            --bg-glass: rgba(10, 15, 20, 0.75);
+            --border-glow: 0 0 15px rgba(0, 243, 255, 0.4);
+            --text-glow: 0 0 8px rgba(0, 243, 255, 0.6);
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Share Tech Mono', 'Noto Sans SC', sans-serif;
+            color: var(--primary-color);
+            user-select: none;
+        }
+
+        /* Scanline Background Effect */
+        body::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.1),
+                rgba(0, 0, 0, 0.1) 1px,
+                transparent 1px,
+                transparent 3px
+            );
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+            /* Deep space gradient managed in Three.js now for trails */
+            background: #000; 
+        }
+
+        /* Cyberpunk HUD Panel */
+        #ui-panel {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--bg-glass);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            padding: 20px 40px;
+            
+            /* Futuristic Shape */
+            clip-path: polygon(
+                30px 0, 100% 0, 
+                100% calc(100% - 30px), calc(100% - 30px) 100%, 
+                0 100%, 0 30px
+            );
+            
+            border: 1px solid rgba(0, 243, 255, 0.2);
+            border-top: 2px solid var(--primary-color);
+            border-bottom: 2px solid var(--primary-color);
+            
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            gap: 30px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8), var(--border-glow);
+            transition: all 0.3s ease;
+        }
+        
+        #ui-panel::before {
+            content: "";
+            position: absolute;
+            top: 5px; left: 5px; right: 5px; bottom: 5px;
+            border: 1px solid rgba(255,255,255,0.05);
+            pointer-events: none;
+            clip-path: polygon(
+                25px 0, 100% 0, 
+                100% calc(100% - 25px), calc(100% - 25px) 100%, 
+                0 100%, 0 25px
+            );
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            position: relative;
+        }
+
+        label {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: rgba(255, 255, 255, 0.7);
+            text-shadow: 0 0 5px rgba(255,255,255,0.3);
+        }
+
+        select {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(0, 243, 255, 0.4);
+            color: var(--primary-color);
+            padding: 10px 15px;
+            border-radius: 2px;
+            font-family: 'Orbitron', 'Noto Sans SC', sans-serif;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            outline: none;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            min-width: 160px;
+            text-shadow: 0 0 5px var(--primary-color);
+        }
+
+        select:hover, select:focus {
+            background: rgba(0, 243, 255, 0.1);
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.3);
+            border-color: #fff;
+        }
+
+        select option {
+            background: #000;
+            color: var(--primary-color);
+        }
+
+        /* Hexagon Color Picker Container */
+        .color-wrapper {
+            position: relative;
+            width: 45px;
+            height: 45px;
+            clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+            background: rgba(0, 243, 255, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s;
+        }
+        
+        .color-wrapper:hover {
+            transform: scale(1.1);
+            background: rgba(0, 243, 255, 0.5);
+        }
+        
+        input[type="color"] {
+            -webkit-appearance: none;
+            border: none;
+            width: 150%;
+            height: 150%;
+            cursor: crosshair;
+            background: none;
+            padding: 0;
+            margin: -25%;
+        }
+
+        /* Toggle Switch */
+        .toggle-wrapper {
+            position: relative;
+            width: 50px;
+            height: 26px;
+        }
+        
+        .toggle-wrapper input { 
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .toggle-btn {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(0,0,0,0.5);
+            border: 1px solid rgba(0, 243, 255, 0.3);
+            transition: .4s;
+            display: block; /* Override previous label display */
+            clip-path: polygon(10px 0, 100% 0, 100% 100%, 0 100%, 0 10px);
+        }
+        
+        .toggle-btn:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 4px;
+            bottom: 3px;
+            background-color: rgba(255,255,255,0.5);
+            transition: .4s;
+            clip-path: polygon(5px 0, 100% 0, 100% 100%, 0 100%, 0 5px);
+        }
+        
+        .toggle-wrapper input:checked + .toggle-btn {
+            background-color: rgba(0, 243, 255, 0.2);
+            box-shadow: 0 0 10px rgba(0, 243, 255, 0.3);
+        }
+        
+        .toggle-wrapper input:checked + .toggle-btn:before {
+            transform: translateX(24px);
+            background-color: var(--primary-color);
+            box-shadow: 0 0 10px var(--primary-color);
+        }
+
+        .separator {
+            width: 1px;
+            height: 40px;
+            background: linear-gradient(to bottom, transparent, var(--primary-color), transparent);
+            opacity: 0.5;
+            box-shadow: 0 0 5px var(--primary-color);
+        }
+
+        .icon-btn {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(0, 243, 255, 0.3);
+            color: var(--primary-color);
+            width: 55px;
+            height: 55px;
+            border-radius: 8px; /* Slightly rounded tech */
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .icon-btn:hover {
+            background: rgba(0, 243, 255, 0.15);
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.25);
+            border-color: #fff;
+            transform: translateY(-2px);
+        }
+        
+        .icon-btn.active {
+            background: rgba(0, 243, 255, 0.2);
+            border-color: var(--primary-color);
+            box-shadow: inset 0 0 15px rgba(0, 243, 255, 0.3);
+        }
+
+        .icon-btn svg {
+            width: 24px;
+            height: 24px;
+            fill: currentColor;
+            margin-bottom: 4px;
+            filter: drop-shadow(0 0 2px var(--primary-color));
+        }
+        
+        .btn-label {
+            font-size: 9px;
+            opacity: 0.9;
+            font-family: 'Noto Sans SC', sans-serif;
+            font-weight: bold;
+        }
+
+        /* Visualizer Bars */
+        .visualizer {
+            display: flex;
+            gap: 3px;
+            align-items: flex-end;
+            height: 20px;
+            width: 30px;
+            margin-bottom: 4px;
+        }
+        
+        .bar {
+            width: 6px;
+            background-color: var(--primary-color);
+            height: 20%;
+            /* Use a very fast transition for smoother but snappy movement */
+            transition: height 0.05s linear, background-color 0.1s ease;
+            box-shadow: 0 0 5px var(--primary-color);
+        }
+
+        /* Webcam HUD Style */
+        #webcam-preview {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            width: 260px;
+            height: 195px;
+            z-index: 5;
+            background: #000;
+            opacity: 0.8;
+            transform: scaleX(-1);
+            
+            border: 1px solid rgba(0, 243, 255, 0.3);
+            box-shadow: 0 0 25px rgba(0, 243, 255, 0.15);
+            
+            /* Complex Tech Shape */
+            clip-path: polygon(
+                20px 0, 100% 0, 100% calc(100% - 20px), 
+                calc(100% - 20px) 100%, 0 100%, 0 20px
+            );
+            transition: opacity 0.3s;
+        }
+        
+        #webcam-preview:hover {
+            opacity: 1;
+        }
+        
+        #webcam-preview video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            /* Cyberpunk Filter */
+            filter: grayscale(0.2) contrast(1.1) brightness(1.2) drop-shadow(0 0 5px var(--primary-color));
+        }
+
+        .scan-line {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: linear-gradient(to right, transparent, var(--primary-color), transparent);
+            opacity: 0.8;
+            animation: scan 2.5s ease-in-out infinite;
+            z-index: 6;
+            box-shadow: 0 0 15px var(--primary-color);
+        }
+        
+        @keyframes scan {
+            0% { top: -10%; opacity: 0; }
+            20% { opacity: 1; }
+            80% { opacity: 1; }
+            100% { top: 110%; opacity: 0; }
+        }
+
+        #status-indicator {
+            position: absolute;
+            bottom: -30px;
+            right: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            z-index: 6;
+            pointer-events: none;
+            transform: scaleX(-1);
+        }
+        
+        .status-text {
+            font-size: 11px; 
+            color: var(--primary-color); 
+            font-family: 'Share Tech Mono'; 
+            letter-spacing: 1.5px;
+            background: rgba(0, 243, 255, 0.15);
+            padding: 4px 8px;
+            border: 1px solid rgba(0, 243, 255, 0.2);
+            text-shadow: 0 0 5px var(--primary-color);
+        }
+        
+        .dot {
+            width: 10px;
+            height: 10px;
+            background-color: #222;
+            border: 1px solid #555;
+            transform: rotate(45deg);
+        }
+        
+        .dot.active {
+            background-color: #0f0;
+            box-shadow: 0 0 15px #0f0, inset 0 0 5px #fff;
+            border-color: #fff;
+            animation: pulse 0.8s infinite;
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: var(--primary-color);
+            font-size: 32px;
+            font-family: 'Orbitron', sans-serif;
+            z-index: 20;
+            pointer-events: none;
+            text-align: center;
+            letter-spacing: 6px;
+            text-shadow: 0 0 30px var(--primary-color);
+            background: rgba(0,0,0,0.8);
+            padding: 40px;
+            border: 1px solid var(--primary-color);
+        }
+        
+        #loading span {
+            display: block;
+            font-size: 14px;
+            margin-top: 20px;
+            opacity: 0.8;
+            font-family: 'Share Tech Mono', sans-serif;
+            color: #fff;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+        /* --- Hacker Overlay Styles --- */
+        #hacker-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 8;
+            overflow: hidden;
+        }
+
+        .data-card {
+            position: absolute;
+            background: rgba(0, 20, 30, 0.85);
+            border: 1px solid var(--primary-color);
+            border-left: 4px solid var(--primary-color);
+            color: #fff;
+            padding: 10px;
+            width: 200px;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 12px;
+            pointer-events: none;
+            animation: fadePop 0.3s ease-out;
+            box-shadow: 0 0 15px rgba(0, 243, 255, 0.3);
+        }
+
+        .data-card h3 {
+            margin: 0 0 5px 0;
+            font-size: 14px;
+            color: var(--primary-color);
+            text-transform: uppercase;
+            border-bottom: 1px solid rgba(255,255,255,0.2);
+            padding-bottom: 3px;
+        }
+
+        .data-line {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 2px;
+            opacity: 0.8;
+        }
+        
+        .blinking-cursor::after {
+            content: "█";
+            animation: blink 0.8s infinite;
+            margin-left: 2px;
+        }
+
+        @keyframes fadePop {
+            0% { opacity: 0; transform: scale(0.8) translateY(10px); }
+            100% { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        /* Mobile Adjustments */
+        @media (max-width: 600px) {
+            #ui-panel {
+                width: 90%;
+                flex-wrap: wrap;
+                justify-content: center;
+                bottom: 20px;
+                padding: 15px;
+                gap: 15px;
+            }
+            #webcam-preview {
+                width: 100px;
+                height: 75px;
+                top: 10px;
+                right: 10px;
+            }
+            label { display: none; }
+            .status-text { display: none; }
+            #loading { font-size: 20px; width: 80%; }
+        }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://aistudiocdn.com/three@^0.181.2",
+    "three/": "https://aistudiocdn.com/three@^0.181.2/",
+    "vite": "https://aistudiocdn.com/vite@^7.2.4"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body>
+    <div id="loading">
+        SYSTEM BOOTING
+        <span>全息粒子引擎初始化中...</span>
+    </div>
+    
+    <div id="canvas-container"></div>
+    <div id="hacker-overlay"></div>
+    
+    <div id="webcam-preview">
+        <div class="scan-line"></div>
+        <video id="input-video" playsinline></video>
+        
+        <div id="status-indicator">
+            <span class="status-text">NEURAL_LINK: SCANNING</span>
+            <div class="dot" id="tracking-dot"></div>
+        </div>
+    </div>
+
+    <div id="ui-panel">
+        <div class="control-group">
+            <label>全息投影结构</label>
+            <select id="shape-select">
+                <option value="earth">🌍 全球监控系统</option>
+                <option value="heart">❤️ 机械之心</option>
+                <option value="flower">🌸 量子莲华</option>
+                <option value="saturn">🪐 轨道防御</option>
+                <option value="buddha">🧘 虚空行者</option>
+                <option value="dna">🧬 生命螺旋</option>
+                <option value="cube">🧊 超维矩阵</option>
+                <option value="mobius">♾️ 莫比乌斯</option>
+                <option value="galaxy">🌌 银河星云</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label>光谱调节</label>
+            <div class="color-wrapper">
+                <input type="color" id="color-picker" value="#00f3ff">
+            </div>
+        </div>
+        
+        <div class="control-group">
+            <label>拖尾特效</label>
+            <div class="toggle-wrapper">
+                <input type="checkbox" id="trails-toggle" checked>
+                <label for="trails-toggle" class="toggle-btn"></label>
+            </div>
+        </div>
+        
+        <div class="separator"></div>
+
+        <button class="icon-btn" id="audio-btn" title="开启声波共振">
+            <div class="visualizer">
+                <div class="bar" id="bar-low"></div>
+                <div class="bar" id="bar-mid"></div>
+                <div class="bar" id="bar-high"></div>
+            </div>
+            <span class="btn-label">声波同步</span>
+        </button>
+
+        <button class="icon-btn" id="fullscreen-btn" title="沉浸模式">
+            <svg viewBox="0 0 24 24">
+                <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+            </svg>
+            <span class="btn-label">全屏投影</span>
+        </button>
+    </div>
+
+    <!-- Vite script entry -->
+    <script type="module" src="/index.tsx"></script>
+</body>
+</html>
